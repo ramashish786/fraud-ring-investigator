@@ -172,18 +172,6 @@ POST /investigations/:id/run
 - **No LLM-generated Cypher.** The query catalog (`app/graph/queries`) is the only source of graph queries — read transactions with timeouts and clamped limits.
 - **In-memory test doubles** (`InMemoryGraphRepository`, `InMemoryChunkStore`) have behaviour kept identical to Neo4j by contract tests, not special-cased mocks (D-026).
 
----
-
-## Documentation
-
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system overview, data ownership, ER diagram, Neo4j model, workflow, request lifecycle, security, observability, deployment, module guide, testing boundary
-- [`DECISIONS.md`](DECISIONS.md) — 54 decision records with alternatives and consequences, including where the original spec was challenged
-- [`docs/SLO.md`](docs/SLO.md) — SLO definitions, burn-rate thresholds, runbook
-- [`docs/api/openapi.json`](docs/api/openapi.json) (or `/docs` on a running API)
-- [`docs/BACKLOG.md`](docs/BACKLOG.md) — phased delivery log
-- [`CLAUDE.md`](CLAUDE.md) — working agreement: keep docs current, never claim untested work
-
----
 
 ## What's verified where
 
