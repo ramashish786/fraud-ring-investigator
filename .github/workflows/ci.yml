@@ -216,7 +216,7 @@ jobs:
           cache-from: type=gha,scope=runtime
           cache-to: type=gha,scope=runtime,mode=max
       - name: Trivy (fixable HIGH/CRITICAL block the build)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: fraud-ring-investigator:ci
           severity: HIGH,CRITICAL
