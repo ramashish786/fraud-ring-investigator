@@ -1,16 +1,5 @@
 # Architecture: Fraud Ring Investigator
 
-> **Living document.** Update it in the same change as any decision that alters a module boundary, a data owner,
-> the workflow graph, the deployment topology or the request lifecycle. Record the decision itself in
-> [`DECISIONS.md`](DECISIONS.md) (D-001 to D-054). A component is marked **verified** only when tests actually ran;
-> anything that needs Neo4j or Docker is marked **not verified here** until it's run in the target environment (§11).
-
-| | |
-|---|---|
-| **Status** | Phases 0–7 implemented; Phase 8a (metrics, SLOs, quality gate, CI/CD) implemented (2026-11-17) |
-| **Verified here** | 103 tests: unit, contract (in-memory backend), PostgreSQL integration, end-to-end workflow, HTTP lifecycle, headless-browser UI flow; ruff, `mypy --strict`, `tsc --strict`; evaluation suite and quality gate (dev and held-out reproduced exactly); Prometheus 3.5 scraping a live API and worker, with every SLI and dashboard query evaluated and `FRIWorkerDown` firing and resolving; promtool rule tests; HTTP smoke test; `actionlint` |
-| **Not verified here** | `docker compose up` (no Docker registry access), every Cypher statement against a live Neo4j, OpenAI calls, Grafana rendering, the GitHub Actions run itself. CI runs the Neo4j and compose checks (§11) |
-| **Decisions** | [`DECISIONS.md`](DECISIONS.md) · **Backlog** [`docs/BACKLOG.md`](docs/BACKLOG.md) · **API** [`docs/api/openapi.json`](docs/api/openapi.json) |
 
 ---
 
