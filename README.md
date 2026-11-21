@@ -1,6 +1,5 @@
 # Fraud Ring Investigator
 
-[![CI](https://github.com/YOUR_USERNAME/fraud-ring-investigator/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/fraud-ring-investigator/actions/workflows/ci.yml)
 ![Tests](https://img.shields.io/badge/tests-115%20passed-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![Neo4j](https://img.shields.io/badge/neo4j-2026-blue)
