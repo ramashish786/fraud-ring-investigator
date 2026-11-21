@@ -1,0 +1,87 @@
+# promtool test rules docker/prometheus/rules/slo.rules.test.yml
+rule_files: [slo.rules.yml]
+evaluation_interval: 1m
+tests:
+  - name: 10% of API calls failing pages for availability
+    interval: 1m
+    input_series:
+      - series: 'fri_http_requests_total{method="GET",route="/api/v1/alerts",status="200"}'
+        values: '0+90x120'
+      - series: 'fri_http_requests_total{method="GET",route="/api/v1/alerts",status="500"}'
+        values: '0+10x120'
+      - series: 'fri_http_requests_total{method="GET",route="/api/v1/health/live",status="200"}'
+        values: '0+1000x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: FRIApiAvailabilityFastBurn
+        exp_alerts:
+          - exp_labels: {severity: page, slo: api-availability}
+            exp_annotations:
+              summary: API is burning its 99.5% availability budget about 14x too fast
+              runbook: docs/SLO.md#slo-1-api-availability
+  - name: health-check failures do not count against availability
+    interval: 1m
+    input_series:
+      - series: 'fri_http_requests_total{method="GET",route="/api/v1/alerts",status="200"}'
+        values: '0+100x120'
+      - series: 'fri_http_requests_total{method="GET",route="/api/v1/health/ready",status="503"}'
+        values: '0+100x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: FRIApiAvailabilityFastBurn
+        exp_alerts: []
+  - name: a dead job raises a ticket
+    interval: 1m
+    input_series:
+      - series: 'fri_jobs_dead{instance="worker:9101",job="worker"}'
+        values: '0 0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: FRIDeadJobs
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "1 job(s) exhausted retries; their investigations are FAILED"
+              runbook: docs/SLO.md#dead-jobs
+  - name: missing worker target pages
+    interval: 1m
+    input_series:
+      - series: 'up{job="api",instance="api:8000"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FRIWorkerDown
+        exp_alerts:
+          - exp_labels: {severity: page, job: worker}
+            exp_annotations:
+              summary: No worker is being scraped; investigations will not progress
+              runbook: docs/SLO.md#worker-down
+  - name: slow investigations raise the freshness ticket (le labels as Prometheus 3 stores them)
+    interval: 1m
+    input_series:
+      # 100 investigations/h reach review; only 50 within 300 s
+      - series: 'fri_investigation_time_to_review_seconds_bucket{le="300.0"}'
+        values: '0+0.83x420'
+      - series: 'fri_investigation_time_to_review_seconds_bucket{le="+Inf"}'
+        values: '0+1.66x420'
+      - series: 'fri_investigation_time_to_review_seconds_count'
+        values: '0+1.66x420'
+    alert_rule_test:
+      - eval_time: 400m
+        alertname: FRIInvestigationFreshnessBurn
+        exp_alerts:
+          - exp_labels: {severity: ticket, slo: investigation-freshness}
+            exp_annotations:
+              summary: Too many investigations take longer than 5 minutes to be ready for review
+              runbook: docs/SLO.md#slo-3-investigation-freshness
+  - name: a healthy API reports 100% availability, not "no data"
+    interval: 1m
+    input_series:
+      - series: 'fri_http_requests_total{method="GET",route="/api/v1/alerts",status="200"}'
+        values: '0+60x90'
+    promql_expr_test:
+      - expr: 1 - fri:sli_api_errors:ratio_rate1h
+        eval_time: 80m
+        exp_samples:
+          - labels: '{}'
+            value: 1

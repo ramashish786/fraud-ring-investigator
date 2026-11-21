@@ -1,0 +1,9 @@
+data/
+data_hard/
+reports_hard/
+__pycache__/
+.pytest_cache/
+.env
+.venv/
+.mypy_cache/
+.ruff_cache/

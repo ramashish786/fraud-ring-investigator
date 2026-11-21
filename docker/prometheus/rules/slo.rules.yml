@@ -1,0 +1,128 @@
+# SLOs for the Fraud Ring Investigator (docs/SLO.md, D-052).
+# Multi-window, multi-burn-rate alerts (Google SRE workbook): page when the 30-day error budget would be
+# exhausted in about 2 days (burn 14.4 over 1h, confirmed over 5m); ticket at about 5 days (burn 6 over 6h, confirmed over 30m).
+# Two pitfalls handled below, both found by querying a live Prometheus 3.5 (not by promtool):
+#   - a 5xx numerator with no 5xx series is *empty*, not 0, which would make the SLI "no data" on a healthy system,
+#     so error counts fall back to `or vector(0)`;
+#   - Prometheus 3 normalises bucket labels (le="300" is ingested as le="300.0"), so bucket matchers are regexes.
+groups:
+  - name: fri-sli-recording
+    rules:
+      # --- SLO 1: API availability (99.5%). Bad = 5xx on /api/v1/* excluding health checks.
+      - record: fri:sli_api_errors:ratio_rate5m
+        expr: |
+          (sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*", status=~"5.."}[5m])) or vector(0))
+          / clamp_min(sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*"}[5m])), 1e-9)
+      - record: fri:sli_api_errors:ratio_rate30m
+        expr: |
+          (sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*", status=~"5.."}[30m])) or vector(0))
+          / clamp_min(sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*"}[30m])), 1e-9)
+      - record: fri:sli_api_errors:ratio_rate1h
+        expr: |
+          (sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*", status=~"5.."}[1h])) or vector(0))
+          / clamp_min(sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*"}[1h])), 1e-9)
+      - record: fri:sli_api_errors:ratio_rate6h
+        expr: |
+          (sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*", status=~"5.."}[6h])) or vector(0))
+          / clamp_min(sum(rate(fri_http_requests_total{route=~"/api/v1/.*", route!~"/api/v1/health.*"}[6h])), 1e-9)
+
+      # --- SLO 2: API read latency (95% of GETs under 250 ms). Bad = slower than the 0.25 s bucket.
+      - record: fri:sli_api_slow_reads:ratio_rate5m
+        expr: |
+          1 - sum(rate(fri_http_request_duration_seconds_bucket{method="GET", route=~"/api/v1/.*", route!~"/api/v1/health.*", le=~"0\\.25"}[5m]))
+          / clamp_min(sum(rate(fri_http_request_duration_seconds_count{method="GET", route=~"/api/v1/.*", route!~"/api/v1/health.*"}[5m])), 1e-9)
+      - record: fri:sli_api_slow_reads:ratio_rate1h
+        expr: |
+          1 - sum(rate(fri_http_request_duration_seconds_bucket{method="GET", route=~"/api/v1/.*", route!~"/api/v1/health.*", le=~"0\\.25"}[1h]))
+          / clamp_min(sum(rate(fri_http_request_duration_seconds_count{method="GET", route=~"/api/v1/.*", route!~"/api/v1/health.*"}[1h])), 1e-9)
+
+      # --- SLO 3: investigation freshness (95% ready for review within 5 minutes of creation).
+      - record: fri:sli_investigation_slow:ratio_rate1h
+        expr: |
+          1 - sum(rate(fri_investigation_time_to_review_seconds_bucket{le=~"300(\\.0)?"}[1h]))
+          / clamp_min(sum(rate(fri_investigation_time_to_review_seconds_count[1h])), 1e-9)
+      - record: fri:sli_investigation_slow:ratio_rate6h
+        expr: |
+          1 - sum(rate(fri_investigation_time_to_review_seconds_bucket{le=~"300(\\.0)?"}[6h]))
+          / clamp_min(sum(rate(fri_investigation_time_to_review_seconds_count[6h])), 1e-9)
+
+      # --- supporting: LLM error ratio
+      - record: fri:llm_errors:ratio_rate15m
+        expr: |
+          (sum(rate(fri_llm_calls_total{status!="ok"}[15m])) or vector(0)) / clamp_min(sum(rate(fri_llm_calls_total[15m])), 1e-9)
+
+  - name: fri-slo-alerts
+    rules:
+      - alert: FRIApiAvailabilityFastBurn
+        expr: fri:sli_api_errors:ratio_rate1h > (14.4 * 0.005) and fri:sli_api_errors:ratio_rate5m > (14.4 * 0.005)
+        for: 2m
+        labels: {severity: page, slo: api-availability}
+        annotations:
+          summary: API is burning its 99.5% availability budget about 14x too fast
+          runbook: docs/SLO.md#slo-1-api-availability
+      - alert: FRIApiAvailabilitySlowBurn
+        expr: fri:sli_api_errors:ratio_rate6h > (6 * 0.005) and fri:sli_api_errors:ratio_rate30m > (6 * 0.005)
+        for: 15m
+        labels: {severity: ticket, slo: api-availability}
+        annotations:
+          summary: API error budget will be exhausted within about 5 days at the current rate
+          runbook: docs/SLO.md#slo-1-api-availability
+      - alert: FRIApiReadLatencyBurn
+        expr: fri:sli_api_slow_reads:ratio_rate1h > (14.4 * 0.05) and fri:sli_api_slow_reads:ratio_rate5m > (14.4 * 0.05)
+        for: 5m
+        labels: {severity: page, slo: api-latency}
+        annotations:
+          summary: Most API reads are slower than 250 ms
+          runbook: docs/SLO.md#slo-2-api-read-latency
+      - alert: FRIInvestigationFreshnessBurn
+        expr: fri:sli_investigation_slow:ratio_rate6h > (6 * 0.05) and fri:sli_investigation_slow:ratio_rate1h > (6 * 0.05)
+        for: 15m
+        labels: {severity: ticket, slo: investigation-freshness}
+        annotations:
+          summary: Too many investigations take longer than 5 minutes to be ready for review
+          runbook: docs/SLO.md#slo-3-investigation-freshness
+
+  - name: fri-symptoms
+    rules:
+      - alert: FRIJobQueueBacklog
+        expr: max(fri_job_queue_oldest_age_seconds) > 120
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Oldest runnable job has waited {{ $value | humanizeDuration }}; workers are saturated or down"
+          runbook: docs/SLO.md#queue-backlog
+      - alert: FRIDeadJobs
+        expr: max(fri_jobs_dead) > 0
+        for: 1m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $value }} job(s) exhausted retries; their investigations are FAILED"
+          runbook: docs/SLO.md#dead-jobs
+      - alert: FRIWorkerDown
+        expr: up{job="worker"} == 0 or absent(up{job="worker"})
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: No worker is being scraped; investigations will not progress
+          runbook: docs/SLO.md#worker-down
+      - alert: FRIApiDown
+        expr: up{job="api"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: API target is down
+          runbook: docs/SLO.md#slo-1-api-availability
+      - alert: FRILLMErrorRateHigh
+        expr: fri:llm_errors:ratio_rate15m > 0.10 and sum(rate(fri_llm_calls_total[15m])) > 0
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: More than 10% of LLM calls fail or return invalid output
+          runbook: docs/SLO.md#llm-errors
+      - alert: FRIGraphQueriesSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(fri_graph_query_duration_seconds_bucket[10m]))) > 1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: p95 Neo4j catalog query latency above 1 s
+          runbook: docs/SLO.md#graph-latency

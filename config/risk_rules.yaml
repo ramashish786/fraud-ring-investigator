@@ -1,0 +1,48 @@
+# Deterministic risk rules (D-013). The LLM never computes or edits scores.
+# score = clamp(sum of fired rule weights, 0, 100). Each rule reads ONE signal (D-029).
+# weight applies when value >= threshold; per_unit adds for each unit above threshold, up to max.
+# Mitigations have negative weights and fire only when every `unless` signal is zero/absent.
+version: "2026.11.1"
+categories:      # lower bound of each category
+  low: 0
+  medium: 25
+  high: 50
+  critical: 75
+rules:
+  - {id: R-PT-01, signal: pass_through_events, threshold: 1, weight: 15, per_unit: 5, max: 25,
+     description: "Funds forwarded onward within 24 hours of receipt (pass-through)"}
+  - {id: R-STR-01, signal: structured_deposits, threshold: 2, weight: 15,
+     description: "Repeated cash deposits just below the reporting threshold"}
+  - {id: R-AMT-01, signal: max_inbound_to_median, threshold: 10, weight: 5,
+     description: "Inbound amount far above the account's usual transaction size"}
+  - {id: R-VEL-01, signal: velocity_24h, threshold: 10, weight: 5,
+     description: "High transaction velocity within 24 hours"}
+  - {id: R-CARD-01, signal: card_test_authorisations, threshold: 1, weight: 25,
+     description: "Micro-authorisations typical of card testing"}
+  - {id: R-AGE-01, signal: recently_opened_account, threshold: 1, weight: 10,
+     description: "Account opened within 60 days of the activity"}
+  - {id: R-BEN-01, signal: new_beneficiary_transfers, threshold: 1, weight: 10, per_unit: 5, max: 15,
+     description: "Transfers to beneficiaries within 24 hours of registering them"}
+  - {id: R-BEN-02, signal: beneficiaries_sharing_identifiers, threshold: 2, weight: 20,
+     description: "New beneficiaries linked to each other by a device or risky IP"}
+  - {id: R-BEN-03, signal: beneficiary_fan_in, threshold: 1, weight: 5,
+     description: "Beneficiary registered by several unrelated accounts"}
+  - {id: R-ATO-01, signal: new_device_before_beneficiary, threshold: 1, weight: 15,
+     description: "Beneficiary added from a device first seen shortly before"}
+  - {id: R-DEV-01, signal: shared_device_links, threshold: 1, weight: 10, per_unit: 5, max: 15,
+     description: "Device shared with customers outside the household"}
+  - {id: R-DEV-02, signal: emulator_devices, threshold: 1, weight: 10,
+     description: "Emulated device fingerprint"}
+  - {id: R-IP-01, signal: risky_shared_ips, threshold: 1, weight: 10,
+     description: "VPN or datacenter IP shared with other customers"}
+  - {id: R-NET-01, signal: onward_dispersion_accounts, threshold: 3, weight: 5,
+     description: "Funds dispersed to several accounts within two hops"}
+  - {id: R-NET-02, signal: value_cycle_accounts, threshold: 1, weight: 20,
+     description: "Funds return to the account through other accounts (cycle)"}
+  - {id: R-CASE-01, signal: linked_confirmed_fraud_cases, threshold: 1, weight: 20,
+     description: "Network includes an account from a confirmed fraud case"}
+mitigations:
+  - {id: M-HH-01, signal: household_shared_devices, threshold: 1, weight: -5, unless: [shared_device_links],
+     description: "Shared device explained by a common household"}
+  - {id: M-CASE-01, signal: linked_cleared_cases, threshold: 1, weight: -5, unless: [linked_confirmed_fraud_cases],
+     description: "A similar prior alert on this network was cleared"}

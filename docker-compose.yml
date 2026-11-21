@@ -1,0 +1,183 @@
+# docker compose up --build -d                 postgres, neo4j, migrate, api, worker, frontend
+# docker compose --profile seed run --rm seed  generate synthetic bank + documents + alerts (once)
+# open http://localhost:3000                   UI   (API docs: http://localhost:8000/docs)
+# docker compose --profile test run --rm tests full test suite incl. Neo4j contract tests (isolated Neo4j)
+# docker compose --profile observability up -d       traces http://localhost:16686, Prometheus :9090, Grafana :3001 (docs/SLO.md)
+name: fraud-ring-investigator
+
+x-app: &app
+  build: {context: ., target: runtime}
+  image: fraud-ring-investigator:dev
+  env_file:
+    - path: .env
+      required: false
+  environment: &app-env
+    ENV: ${ENV:-dev}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fri}:${POSTGRES_PASSWORD:-fri_dev_pw}@postgres:5432/${POSTGRES_DB:-fri}
+    NEO4J_URI: bolt://neo4j:7687
+    NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4j_dev_pw}
+    JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789}
+    LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-}
+    OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-}
+    EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+    DOCUMENT_STORAGE_DIR: /data/documents
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  volumes:
+    - documents:/data/documents
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  neo4j:
+    image: neo4j:2026.09.0          # Community Edition; Cypher 25 SEARCH + in-index vector filters (D-017, D-034)
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neo4j_dev_pw}
+      _NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4j_dev_pw}  # healthcheck only — avoids Neo4j config translation
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512M
+    ports: ["7474:7474", "7687:7687"]
+    volumes: [neo4j_data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$$_NEO4J_PASSWORD\" 'RETURN 1' >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  migrate:
+    <<: *app
+    command: ["sh", "-c", "alembic upgrade head && python -m app.agents.checkpoint && python -m app.graph.schema.bootstrap"]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+      neo4j: {condition: service_healthy}
+
+  api:
+    <<: *app
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    stop_grace_period: 25s
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "workers.main"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    stop_grace_period: 30s
+
+  frontend:
+    build: ./frontend
+    ports: ["3000:8080"]
+    depends_on:
+      api: {condition: service_healthy}
+
+  seed:
+    <<: *app
+    profiles: ["seed"]
+    environment:
+      <<: *app-env
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-ChangeMe-123!}
+    command:
+      - sh
+      - -c
+      - >-
+        python -m simulation.simulate --out /data/bank --customers $${SEED_CUSTOMERS:-2000} --days $${SEED_DAYS:-45} --seed 42 &&
+        python -m simulation.documents --data /data/bank &&
+        python -m app.seed --data /data/bank --wipe-graph
+    volumes:
+      - documents:/data/documents
+      - bank_data:/data/bank
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  # ---- test profile: isolated Neo4j (contract tests WIPE it) + the dev image with the test suite
+  neo4j-test:
+    image: neo4j:2026.09.0
+    profiles: ["test"]
+    environment:
+      NEO4J_AUTH: neo4j/neo4j_test_pw
+      NEO4J_server_memory_heap_max__size: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p neo4j_test_pw 'RETURN 1' >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+  tests:
+    build: {context: ., target: dev}
+    profiles: ["test"]
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fri}:${POSTGRES_PASSWORD:-fri_dev_pw}@postgres:5432/fri_test
+      TEST_NEO4J_URI: bolt://neo4j-test:7687
+      TEST_NEO4J_PASSWORD: neo4j_test_pw
+    command: ["pytest", "-q", "-rs"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      neo4j-test: {condition: service_healthy}
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    profiles: ["observability"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports: ["16686:16686", "4318:4318"]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana_dev_pw}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports: ["3001:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  documents:
+  bank_data:
+  prometheus_data:
+  grafana_data:

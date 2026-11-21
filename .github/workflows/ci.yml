@@ -1,0 +1,258 @@
+# Continuous integration (D-054). Every job maps to a claim in ARCHITECTURE.md's verification table:
+# if a job is red, the matching claim is false for that commit.
+#
+#   static        ruff, format, mypy --strict, generated files up to date
+#   test          full pytest suite against real Postgres AND real Neo4j (contract tests may not skip)
+#   observability promtool config/rules check + alert unit tests, dashboard generated from code
+#   frontend      tsc --strict + production build
+#   evaluation    end-to-end evaluation on dev and held-out seeds -> quality gate (blocks on regression)
+#   image         build the runtime image, Trivy scan (blocks on fixable HIGH/CRITICAL)
+#   compose-smoke the real docker compose stack, seeded, driven over HTTP by scripts/smoke_test.py
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.11.32"
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+  POSTGRES_IMAGE: postgres:17
+  NEO4J_IMAGE: neo4j:2026.09.0
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Types (mypy --strict)
+        run: uv run mypy
+      - name: Generated files are committed and current
+        run: |
+          uv run python scripts/export_openapi.py --check
+          uv run python scripts/build_dashboard.py --check
+      - name: Lockfile matches pyproject
+        run: uv lock --check
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fri
+          POSTGRES_PASSWORD: fri_ci_pw
+          POSTGRES_DB: fri_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fri" --health-interval 5s --health-timeout 5s --health-retries 20
+      neo4j:
+        image: neo4j:2026.09.0
+        env:
+          NEO4J_AUTH: neo4j/neo4j_ci_pw
+          NEO4J_server_memory_heap_max__size: 1G
+        ports: ["7687:7687"]
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p neo4j_ci_pw 'RETURN 1'"
+          --health-interval 10s --health-timeout 10s --health-retries 30 --health-start-period 30s
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://fri:fri_ci_pw@localhost:5432/fri_test
+      TEST_NEO4J_URI: bolt://localhost:7687
+      TEST_NEO4J_PASSWORD: neo4j_ci_pw
+      REQUIRE_NEO4J: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: pytest (unit, contract on memory + Neo4j, integration, e2e)
+        run: uv run pytest -q -rs --junitxml=reports/junit.xml
+      - name: Fail if anything was skipped
+        # Skips are how "verified" claims rot: a test that silently stops running still looks green.
+        run: |
+          python3 - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse("reports/junit.xml").getroot()
+          skipped = [f"{c.get('classname')}::{c.get('name')}" for c in root.iter("testcase") if c.find("skipped") is not None]
+          if skipped:
+              print("skipped tests:\n  " + "\n  ".join(skipped)); sys.exit(1)
+          print("no skipped tests")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit
+          path: reports/junit.xml
+
+  observability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: promtool check + alert unit tests
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD/docker/prometheus:/p" -w /p/rules prom/prometheus:v3.5.0 check rules slo.rules.yml
+          docker run --rm --entrypoint promtool -v "$PWD/docker/prometheus:/p" -w /p/rules prom/prometheus:v3.5.0 test rules slo.rules.test.yml
+          sed 's|/etc/prometheus/rules|/p/rules|' docker/prometheus/prometheus.yml > /tmp/prometheus.yml
+          docker run --rm --entrypoint promtool -v "$PWD/docker/prometheus:/p" -v /tmp/prometheus.yml:/tmp/prometheus.yml prom/prometheus:v3.5.0 check config /tmp/prometheus.yml
+      - name: Dashboard JSON is valid
+        run: python3 -c "import json; d=json.load(open('docker/grafana/dashboards/fri-overview.json')); assert d['uid'] and d['panels']"
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: tsc --strict + vite build
+        run: npm run build
+
+  evaluation:
+    needs: [static]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fri
+          POSTGRES_PASSWORD: fri_ci_pw
+          POSTGRES_DB: fri
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fri" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://fri:fri_ci_pw@localhost:5432/fri
+      NEO4J_PASSWORD: unused
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123
+      GRAPH_BACKEND: memory
+      LLM_PROVIDER: fake
+      EMBEDDING_DIMENSIONS: "256"
+      DOCUMENT_STORAGE_DIR: /tmp/fri-docs
+      LOG_JSON: "false"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: dev, seed: 42, camouflage: "0.5", customers: 2000, days: 45, blocking: true}
+          - {name: holdout, seed: 99, camouflage: "0.9", customers: 2000, days: 45, blocking: true}
+          # Twice the bank, longer history. Known to miss two floors today (D-053), so it reports without blocking.
+          - {name: scale, seed: 42, camouflage: "0.5", customers: 4000, days: 60, blocking: false}
+    name: evaluation (${{ matrix.name }})
+    continue-on-error: ${{ !matrix.blocking }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Migrate
+        run: uv run alembic upgrade head && uv run python -m app.agents.checkpoint
+      # dev/holdout use the same sizes as the committed reports, so the gate compares like with like. Simulation and
+      # the fake LLM are deterministic: those jobs reproduce reports/ and reports/holdout/ exactly (latency aside).
+      - name: Simulate bank (seed ${{ matrix.seed }}, camouflage ${{ matrix.camouflage }})
+        run: |
+          uv run python -m simulation.simulate --out data-ci --customers ${{ matrix.customers }} --days ${{ matrix.days }} --seed ${{ matrix.seed }} --camouflage ${{ matrix.camouflage }}
+          uv run python -m simulation.documents --data data-ci
+      - name: Run evaluation
+        run: uv run python -m app.evaluation.investigations --data data-ci --out reports-ci
+      - name: Quality gate
+        run: uv run python -m app.evaluation.gate reports-ci/evaluation.json --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evaluation-${{ matrix.name }}
+          path: reports-ci/
+
+  image:
+    needs: [static]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          tags: fraud-ring-investigator:ci
+          load: true
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,scope=runtime,mode=max
+      - name: Trivy (fixable HIGH/CRITICAL block the build)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: fraud-ring-investigator:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Image runs as non-root
+        run: test "$(docker run --rm --entrypoint id fraud-ring-investigator:ci -u)" != "0"
+
+  compose-smoke:
+    needs: [test, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SEED_USER_PASSWORD: ci-smoke-Pass-123
+      SEED_CUSTOMERS: "800"
+      SEED_DAYS: "30"
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123
+      EMBEDDING_DIMENSIONS: "256"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Start the stack
+        # The smoke test waits for /health/ready itself, which covers Postgres, Neo4j and the checkpointer.
+        run: docker compose up -d --build
+      - name: Seed (once migrate has finished)
+        run: docker compose --profile seed run --rm seed
+      - name: Smoke test over HTTP
+        run: python3 scripts/smoke_test.py --base-url http://localhost:8000 --password "$SEED_USER_PASSWORD" --ready-timeout 600
+      - name: Frontend proxies the API
+        run: curl -fsS http://localhost:3000/api/v1/health
+      - name: Worker exposes metrics
+        run: docker compose exec -T worker python -c "import urllib.request as u; assert b'fri_jobs_processed_total' in u.urlopen('http://localhost:9101/metrics').read()"
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

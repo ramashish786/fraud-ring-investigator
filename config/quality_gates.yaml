@@ -1,0 +1,38 @@
+# Release quality gate (D-053). `python -m app.evaluation.gate reports/evaluation.json` exits 1 if any gate fails.
+#
+# These are regression floors, not targets. Each floor sits a little below the value measured on both the dev seed
+# and the held-out seed (reports/, reports/holdout/), so a change that makes detection, grounding or retrieval
+# measurably worse blocks the merge. Raise a floor when a change genuinely improves the metric; lowering one needs
+# a DECISIONS.md entry explaining why.
+#
+# `hard: true` marks invariants that must hold exactly. They encode safety properties, not quality trade-offs.
+version: 2026.11.1
+gates:
+  # Every alert must finish; a crash on any alert is a failure, not a lower score.
+  - {metric: environment.completed, equals_metric: environment.alerts, hard: true}
+
+  # Grounding: every claim cites evidence that exists (spec: "no fabricated claims").
+  - {metric: citation_correctness, min: 1.0, hard: true}
+  - {metric: unsupported_claim_rate, max: 0.0, hard: true}
+  - {metric: evidence_completeness, min: 0.95}
+
+  # Detection at the "escalate for review" threshold (≥ medium). Recall matters most: a missed ring is the costly error.
+  - {metric: detection_medium_plus.recall, min: 0.95}
+  - {metric: detection_medium_plus.precision, min: 0.90}
+  # At ≥ high we accept lower recall (D-048) but must not regress further.
+  - {metric: detection_high_plus.recall, min: 0.70}
+  - {metric: detection_high_plus.precision, min: 0.90}
+
+  # Ring discovery is the known weak spot (D-048); the floor stops it getting worse.
+  - {metric: ring_discovery.precision, min: 0.65}
+  - {metric: ring_discovery.recall, min: 0.20}
+
+  # Retrieval quality on the labelled query set.
+  - {metric: retrieval.hybrid.recall@5, min: 0.90}
+  - {metric: retrieval.hybrid.mrr, min: 0.85}
+
+  # Durable execution: every injected crash must resume to completion.
+  - {metric: workflow_recovery.succeeded, equals_metric: workflow_recovery.trials, hard: true}
+
+  # Fake-LLM latency guards against accidental N+1 queries or quadratic graph walks, not against provider latency.
+  - {metric: latency_s.p95, max: 2.0}

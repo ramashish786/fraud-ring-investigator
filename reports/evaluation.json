@@ -1,0 +1,273 @@
+{
+  "environment": {
+    "graph_backend": "memory",
+    "llm_provider": "fake",
+    "alerts": 26,
+    "completed": 26
+  },
+  "detection_medium_plus": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "tp": 17,
+    "fp": 0,
+    "fn": 0
+  },
+  "detection_high_plus": {
+    "precision": 1.0,
+    "recall": 0.824,
+    "f1": 0.903,
+    "tp": 14,
+    "fp": 0,
+    "fn": 3
+  },
+  "ring_discovery": {
+    "precision": 0.718,
+    "recall": 0.267,
+    "alerts_scored": 17
+  },
+  "retrieval": {
+    "vector": {
+      "recall@1": 0.675,
+      "recall@3": 0.85,
+      "recall@5": 0.925,
+      "mrr": 0.933
+    },
+    "keyword": {
+      "recall@1": 0.725,
+      "recall@3": 0.925,
+      "recall@5": 1.0,
+      "mrr": 1.0
+    },
+    "hybrid": {
+      "recall@1": 0.675,
+      "recall@3": 0.925,
+      "recall@5": 1.0,
+      "mrr": 0.95
+    },
+    "queries": 10,
+    "embedder": "hashing-bow"
+  },
+  "evidence_completeness": 1.0,
+  "citation_correctness": 1.0,
+  "unsupported_claim_rate": 0.0,
+  "latency_s": {
+    "p50": 0.13,
+    "p95": 0.15,
+    "max": 0.26
+  },
+  "workflow_recovery": {
+    "trials": 6,
+    "succeeded": 6
+  },
+  "per_alert": [
+    {
+      "ref": "MON-00001",
+      "pattern": "spec_example",
+      "is_fraud": true,
+      "score": 100,
+      "category": "critical",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00002",
+      "pattern": "mule_network",
+      "is_fraud": true,
+      "score": 80,
+      "category": "critical",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00003",
+      "pattern": "ato",
+      "is_fraud": true,
+      "score": 60,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00004",
+      "pattern": "mule_network",
+      "is_fraud": true,
+      "score": 100,
+      "category": "critical",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00005",
+      "pattern": "ato",
+      "is_fraud": true,
+      "score": 65,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00006",
+      "pattern": "mule_network",
+      "is_fraud": true,
+      "score": 65,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00007",
+      "pattern": "ato",
+      "is_fraud": true,
+      "score": 65,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00008",
+      "pattern": "synthetic_identity",
+      "is_fraud": true,
+      "score": 65,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00009",
+      "pattern": "synthetic_identity",
+      "is_fraud": true,
+      "score": 65,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00010",
+      "pattern": "synthetic_identity",
+      "is_fraud": true,
+      "score": 65,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00011",
+      "pattern": "card_testing",
+      "is_fraud": true,
+      "score": 55,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00012",
+      "pattern": "card_testing",
+      "is_fraud": true,
+      "score": 55,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00013",
+      "pattern": "promo_abuse",
+      "is_fraud": true,
+      "score": 30,
+      "category": "medium",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00014",
+      "pattern": "promo_abuse",
+      "is_fraud": true,
+      "score": 30,
+      "category": "medium",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00015",
+      "pattern": "promo_abuse",
+      "is_fraud": true,
+      "score": 30,
+      "category": "medium",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00016",
+      "pattern": "round_tripping",
+      "is_fraud": true,
+      "score": 75,
+      "category": "critical",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00017",
+      "pattern": "round_tripping",
+      "is_fraud": true,
+      "score": 50,
+      "category": "high",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00018",
+      "pattern": "household_shared_device",
+      "is_fraud": false,
+      "score": 0,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00019",
+      "pattern": "household_shared_device",
+      "is_fraud": false,
+      "score": 0,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00020",
+      "pattern": "household_shared_device",
+      "is_fraud": false,
+      "score": 0,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00021",
+      "pattern": "shopkeeper_fan_in",
+      "is_fraud": false,
+      "score": 10,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00022",
+      "pattern": "shopkeeper_fan_in",
+      "is_fraud": false,
+      "score": 10,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00023",
+      "pattern": "benign_new_phone",
+      "is_fraud": false,
+      "score": 0,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00024",
+      "pattern": "benign_new_phone",
+      "is_fraud": false,
+      "score": 5,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00025",
+      "pattern": "ordinary_customer",
+      "is_fraud": false,
+      "score": 0,
+      "category": "low",
+      "status": "completed"
+    },
+    {
+      "ref": "MON-00026",
+      "pattern": "ordinary_customer",
+      "is_fraud": false,
+      "score": 5,
+      "category": "low",
+      "status": "completed"
+    }
+  ]
+}
