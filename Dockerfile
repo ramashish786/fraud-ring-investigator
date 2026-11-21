@@ -2,7 +2,7 @@
 # One image, several roles (D-004): api (default CMD), worker, migrate and seed (compose overrides the command).
 
 # ---------- build: install dependencies from the lockfile
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
@@ -26,7 +26,7 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 CMD ["pytest", "-q"]
 
 # ---------- runtime: no build tools, non-root
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 RUN groupadd --system app && useradd --system --gid app --home-dir /app --no-create-home app \
  && mkdir -p /data/documents /data/bank && chown -R app:app /data
 WORKDIR /app
