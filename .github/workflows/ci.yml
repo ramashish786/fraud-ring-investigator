@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: ${{ env.UV_VERSION }}
@@ -83,7 +83,7 @@ jobs:
       TEST_NEO4J_PASSWORD: neo4j_ci_pw
       REQUIRE_NEO4J: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: ${{ env.UV_VERSION }}
@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: promtool check + alert unit tests
         run: |
           docker run --rm --entrypoint promtool -v "$PWD/docker/prometheus:/p" -w /p/rules prom/prometheus:v3.5.0 check rules slo.rules.yml
@@ -130,7 +130,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -174,7 +174,7 @@ jobs:
     name: evaluation (${{ matrix.name }})
     continue-on-error: ${{ !matrix.blocking }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: ${{ env.UV_VERSION }}
@@ -204,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - name: Build runtime image
         uses: docker/build-push-action@v6
@@ -237,7 +237,7 @@ jobs:
       JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123
       EMBEDDING_DIMENSIONS: "256"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - name: Start the stack
         # The smoke test waits for /health/ready itself, which covers Postgres, Neo4j and the checkpointer.
