@@ -13,11 +13,11 @@
     "cytoscape": "^3.35.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "react-router-dom": "^7.18.5"
+    "react-router-dom": "^7.18.7"
   },
   "devDependencies": {
-    "@types/cytoscape": "^3.21.9",
-    "@types/react": "^19.2.0",
+    "@types/cytoscape": "^3.31.0",
+    "@types/react": "^19.3.2",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.3.0",
     "typescript": "^5.9.0",
